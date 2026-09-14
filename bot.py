@@ -1,74 +1,67 @@
 import os
 import logging
-from pathlib import Path
 from telebot import TeleBot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ============ КОНФИГ ============
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-OWNER_CHAT_ID = int(os.environ.get("OWNER_CHAT_ID", "1194243262"))
-ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "358325979"))
-ADMIN_TOPIC_ID = int(os.environ.get("ADMIN_TOPIC_ID", "225548"))
+BOT_TOKEN = os.environ["BOT_TOKEN"]            # токен бота Валерии
+OWNER_CHAT_ID = int(os.environ.get("OWNER_CHAT_ID", "1194243262"))  # куда летят заявки
+ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "358325979"))  # спру (опционально)
+ADMIN_TOPIC_ID = int(os.environ.get("ADMIN_TOPIC_ID", "225548"))    # топик «Сайт»
 
 logging.basicConfig(level=logging.INFO)
 bot = TeleBot(BOT_TOKEN)
-
-# ============ ПОИСК ФОТО С FALLBACK ============
-def find_photo(*names):
-    """Ищет файл по списку возможных имён."""
-    for n in names:
-        if Path(n).exists():
-            return n
-    return None
-
-PHOTOS = {
-    "razbor": find_photo("photo-razbor.jpg", "razbor.jpg"),
-    "manikur": find_photo("photo-manikur.jpg", "manikur.jpg"),
-    "pedikur": find_photo("photo-pedikur.jpg", "pedikur.jpg"),
-    "makeup": find_photo("photo-makeup.jpg", "foto-makiyazh.jpg", "photo-макияж.jpg", "makeup.jpg"),
-}
 
 # ============ КАТАЛОГ УСЛУГ ============
 SERVICES = {
     "razbor": {
         "name": "Разбор косметички",
+        "short": "💄 Разбор косметички — 1 500₽",
         "price": "1 500₽",
         "dur": "60 мин",
+        "photo": "photo-razbor.jpg",
         "motiv": "✨ Твой идеальный набор собирается за один визит. Не пора ли?",
-        "variants": [],
+        "variants": []
     },
     "manikur": {
         "name": "Маникюр",
+        "short": "💅 Маникюр",
         "price": "от 1 500₽",
         "dur": "60 мин",
+        "photo": "photo-manikur.jpg",
         "motiv": "💅 Не затягивай до последнего — бронируй дату заранее. Ведь красивый маникюр вырабатывает гармон счастья.",
         "variants": [
             ("Классический", "1 500₽", "60 мин"),
             ("Аппаратный", "1 800₽", "60 мин"),
             ("Гель-лак", "2 000₽", "90 мин"),
-        ],
+        ]
     },
     "pedikur": {
         "name": "Педикюр",
+        "short": "🦶 Педикюр",
         "price": "от 2 000₽",
         "dur": "75 мин",
+        "photo": "photo-pedikur.jpg",
         "motiv": "🦶 Ножки тоже заслуживают заботы.",
         "variants": [
             ("Классический", "2 000₽", "75 мин"),
             ("Аппаратный", "2 500₽", "90 мин"),
             ("Педикюр + гель-лак", "2 800₽", "90 мин"),
-        ],
+        ]
     },
     "makeup": {
         "name": "Сопровождение макияжа",
+        "short": "💋 Сопровождение макияжа — 1 500₽",
         "price": "1 500₽",
         "dur": "до 60 мин видеозвонка",
+        "photo": "photo-makeup.jpg",
         "motiv": "💋 Сегодня — тот самый день, когда ты можешь это сделать под моей бережной опекой.",
-        "variants": [],
-    },
+        "variants": []
+    }
 }
 
-# ============ FSM ============
+# ============ СОСТОЯНИЯ (FSM) ============
+# {chat_id: {"step": str, "service": str, "variant": str, "name": str, "phone": str, "date": str}}
 state = {}
 
 def reset_state(chat_id):
@@ -93,7 +86,8 @@ def variants_kb(svc_key):
     svc = SERVICES[svc_key]
     if svc["variants"]:
         for i, (name, price, dur) in enumerate(svc["variants"]):
-            kb.add(InlineKeyboardButton(f"{name} — {price} ({dur})", callback_data=f"var:{svc_key}:{i}"))
+            label = f"{name} — {price} ({dur})"
+            kb.add(InlineKeyboardButton(label, callback_data=f"var:{svc_key}:{i}"))
     else:
         kb.add(InlineKeyboardButton("✅ Записаться", callback_data=f"var:{svc_key}:0"))
     kb.add(InlineKeyboardButton("← Назад", callback_data="back:menu"))
@@ -130,7 +124,7 @@ def cmd_start(message):
     )
     bot.send_message(message.chat.id, "Что вас интересует?", reply_markup=main_menu_kb())
 
-# ============ CALLBACK ============
+# ============ CALLBACK (кнопки) ============
 @bot.callback_query_handler(func=lambda c: True)
 def on_callback(call):
     chat_id = call.message.chat.id
@@ -142,17 +136,13 @@ def on_callback(call):
         s["service"] = data.split(":", 1)[1]
         s["step"] = "variants"
         svc = SERVICES[s["service"]]
+        # удаляем старое сообщение с кнопками, шлём фото
         try:
             bot.delete_message(chat_id, call.message.message_id)
         except Exception:
             pass
-        photo_path = PHOTOS.get(s["service"])
-        if photo_path:
-            try:
-                with open(photo_path, "rb") as ph:
-                    bot.send_photo(chat_id, ph)
-            except Exception as e:
-                logging.warning("photo send failed: %s", e)
+        with open(svc["photo"], "rb") as ph:
+            bot.send_photo(chat_id, ph)
         bot.send_message(chat_id, svc["motiv"], reply_markup=variants_kb(s["service"]))
 
     elif data.startswith("var:"):
@@ -164,7 +154,10 @@ def on_callback(call):
         else:
             s["variant"] = f"{svc['name']} — {svc['price']} ({svc['dur']})"
         s["step"] = "name"
-        bot.edit_message_text("Как вас зовут?", chat_id, call.message.message_id, reply_markup=None)
+        bot.edit_message_text(
+            "Как вас зовут?", chat_id, call.message.message_id,
+            reply_markup=None,
+        )
 
     elif data.startswith("date:"):
         v = data.split(":", 1)[1]
@@ -177,9 +170,13 @@ def on_callback(call):
             )
             return
         s["step"] = "confirm"
-        bot.edit_message_text(render_summary(s), chat_id, call.message.message_id, reply_markup=confirm_kb())
+        bot.edit_message_text(
+            render_summary(s), chat_id, call.message.message_id,
+            reply_markup=confirm_kb(),
+        )
 
     elif data == "send:ok":
+        # отправляем заявку владельцу и в спру (если настроено)
         send_lead(s)
         s["step"] = "after"
         bot.edit_message_text(
@@ -191,47 +188,55 @@ def on_callback(call):
         target = data.split(":", 1)[1]
         if target == "menu":
             reset_state(chat_id)
-            bot.edit_message_text("Что вас интересует?", chat_id, call.message.message_id, reply_markup=main_menu_kb())
+            bot.edit_message_text(
+                "Что вас интересует?", chat_id, call.message.message_id,
+                reply_markup=main_menu_kb(),
+            )
         elif target == "name":
             s["step"] = "name"
-            bot.edit_message_text("Как вас зовут?", chat_id, call.message.message_id, reply_markup=None)
+            bot.edit_message_text(
+                "Как вас зовут?", chat_id, call.message.message_id,
+                reply_markup=None,
+            )
 
     elif data == "about":
-        kb = InlineKeyboardMarkup(row_width=1)
-        kb.add(InlineKeyboardButton("Записаться", callback_data="svc:razbor"))
-        kb.add(InlineKeyboardButton("← Назад", callback_data="back:menu"))
         bot.edit_message_text(
             "Валерия — бьюти-мастер с 8-летним опытом.\n\n"
             "💄 Разбор косметички — помогу собрать идеальный набор под ваш тип кожи.\n"
             "💅 Маникюр и педикюр — классический, аппаратный, с гель-лаком.\n"
             "💋 Сопровождение макияжа — консультация в реальном времени.\n\n"
             "Хотите записаться?",
-            chat_id, call.message.message_id, reply_markup=kb,
+            chat_id, call.message.message_id,
+            reply_markup=InlineKeyboardMarkup().add(
+                InlineKeyboardButton("Записаться", callback_data="svc:razbor")
+            ).add(InlineKeyboardButton("← Назад", callback_data="back:menu")),
         )
 
     elif data == "contact":
-        kb = InlineKeyboardMarkup(row_width=1)
-        kb.add(InlineKeyboardButton("🏠 В начало", callback_data="back:menu"))
         bot.edit_message_text(
             "Связаться с Валерией:\n\n"
             "✈️ Telegram: @mikhaylova_pilit\n"
             "📱 Тел.: +7 (999) 123-45-67\n\n"
             "Или вернуться в меню:",
-            chat_id, call.message.message_id, reply_markup=kb,
+            chat_id, call.message.message_id,
+            reply_markup=InlineKeyboardMarkup().add(
+                InlineKeyboardButton("🏠 В начало", callback_data="back:menu")
+            ),
         )
 
     elif data == "share":
         bot.edit_message_text(
             "Вот ссылка:\nhttps://t.me/mikhaylovabeauty_bot\n\n"
             "Поделитесь с подругами 🌷",
-            chat_id, call.message.message_id, reply_markup=after_kb(),
+            chat_id, call.message.message_id,
+            reply_markup=after_kb(),
         )
 
 # ============ ТЕКСТ (FSM) ============
 @bot.message_handler(func=lambda m: True)
 def on_text(message):
     if message.text and message.text.startswith("/"):
-        return
+        return  # команды обработаны выше
     chat_id = message.chat.id
     s = get_state(chat_id)
     step = s.get("step")
@@ -239,7 +244,10 @@ def on_text(message):
     if step == "name":
         s["name"] = message.text.strip()
         s["step"] = "phone"
-        bot.send_message(chat_id, f"Приятно познакомиться, {s['name']}! 🤍\nОтправьте номер телефона для связи:")
+        bot.send_message(
+            chat_id,
+            f"Приятно познакомиться, {s['name']}! 🤍\nОтправьте номер телефона для связи:",
+        )
     elif step == "phone":
         s["phone"] = message.text.strip()
         s["step"] = "date"
@@ -249,9 +257,13 @@ def on_text(message):
         s["step"] = "confirm"
         bot.send_message(chat_id, render_summary(s), reply_markup=confirm_kb())
     else:
-        kb = InlineKeyboardMarkup(row_width=1)
-        kb.add(InlineKeyboardButton("Открыть меню", callback_data="back:menu"))
-        bot.send_message(chat_id, "Нажмите /start, чтобы открыть меню 🌷", reply_markup=kb)
+        bot.send_message(
+            chat_id,
+            "Нажмите /start, чтобы открыть меню 🌷",
+            reply_markup=InlineKeyboardMarkup().add(
+                InlineKeyboardButton("Открыть меню", callback_data="back:menu")
+            ),
+        )
 
 # ============ HELPERS ============
 def render_summary(s):
@@ -272,10 +284,12 @@ def send_lead(s):
         f"💄 Услуга: {s.get('variant','')}\n"
         f"📅 Когда: {s.get('date','')}"
     )
+    # владельцу
     try:
         bot.send_message(OWNER_CHAT_ID, text)
     except Exception as e:
         logging.exception("owner notify failed: %s", e)
+    # в спру (в топик «Сайт»), если настроено
     try:
         bot.send_message(ADMIN_CHAT_ID, text, message_thread_id=ADMIN_TOPIC_ID)
     except Exception:
@@ -285,3 +299,4 @@ def send_lead(s):
 if __name__ == "__main__":
     print("Bot is starting…")
     bot.infinity_polling(skip_pending=True)
+
