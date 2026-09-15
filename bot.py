@@ -1,3 +1,4 @@
+
 import os
 import logging
 from pathlib import Path
@@ -88,6 +89,7 @@ def main_menu_kb():
     kb.add(InlineKeyboardButton("💋 Сопровождение макияжа", callback_data="svc:makeup"))
     kb.add(InlineKeyboardButton("ℹ️ Обо мне", callback_data="about"))
     kb.add(InlineKeyboardButton("📞 Связаться напрямую", callback_data="contact"))
+    kb.add(InlineKeyboardButton("🌐 Сайт Валерии Михайловой", url="https://mikhaylovabeauty.p.spru.io/"))
     return kb
 
 def variants_kb(svc_key):
@@ -292,5 +294,4 @@ def send_lead(s):
 if __name__ == "__main__":
     print("Bot is starting…")
     bot.infinity_polling(skip_pending=True)
-
 
